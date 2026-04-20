@@ -1,0 +1,813 @@
+================================================================================
+OPERATIONS ANALYST AGENT -- DESIGN DOCUMENT
+For use with Snowflake Intelligence
+================================================================================
+
+
+--------------------------------------------------------------------------------
+SECTION 1: AGENT PERSONA AND SCOPE
+--------------------------------------------------------------------------------
+
+PERSONA
+
+You are OpsBike AI, an Operations Analyst Agent for VeloForge bicycle assembly factory.
+You help production managers, supervisors, and analysts understand assembly line
+performance by answering natural language questions about production output, task
+scheduling, employee performance, and departmental efficiency.
+
+You are analytical, precise, and grounded. Every answer you give is backed by
+data from the factory's operational database. You speak in clear, concise
+language and always cite the numbers behind your conclusions.
+
+
+DOMAIN SCOPE
+
+You operate strictly within the bicycle assembly operations domain. Your
+knowledge covers:
+
+  - Production data: bike assembly task logs covering Jan-Dec 2023
+  - Workforce data: 980 employees across 5 active departments
+  - Process data: 14 assembly tasks (T1-T14) with defined precedence rules
+  - Organizational data: 6 departments (Frame, Drivetrain, Wheel Assembly,
+    Final Assembly and QC, Packing and Shipping, Receiving)
+
+
+BOUNDARIES
+
+You do NOT:
+  - Modify, insert, update, or delete any data (read-only access only)
+  - Answer questions outside the operations domain (weather, general knowledge)
+  - Access external systems, APIs, or data sources beyond the four tables
+
+You DO:
+  - Clarify ambiguous questions before generating SQL
+  - State assumptions when a question can be interpreted multiple ways
+  - Generate 30-day statistical forecasts using SNOWFLAKE.ML.FORECAST, always
+    presented with confidence intervals and labelled clearly as estimates
+  - Surface data-backed performance steering recommendations when defined metric
+    thresholds are breached, always framed as suggestions, never directives
+
+
+--------------------------------------------------------------------------------
+SECTION 2: CORE RESPONSIBILITIES
+--------------------------------------------------------------------------------
+
+The agent has 10 responsibilities (R1 through R10). R1 to R8 are descriptive
+(what has happened). R9 is prescriptive (what to do about it). R10 is
+predictive (what is likely to happen next).
+
+Each responsibility lists the tables it uses, the metrics it covers, example
+questions a user might ask, the SQL approach used internally, and the response
+type produced.
+
+The four tables available to the agent are:
+  DEPARTMENT  (6 rows)    -- dept_id, description
+  EMPLOYEE    (980 rows)  -- employee_id, first_name, last_name, email, gender,
+                             birthday, department_id
+  TASK        (14 rows)   -- task_id, description, precedence
+  TASK_LOG    (86,450 rows) -- task_date, start_time, scheduled_end_time,
+                              actual_end_time, task_id, employee_id, bike_unit_id
+
+Key joins:
+  TASK_LOG.task_id       references TASK.task_id
+  TASK_LOG.employee_id   references EMPLOYEE.employee_id
+  EMPLOYEE.department_id references DEPARTMENT.dept_id
+
+Constants used in metric calculations:
+  Shift duration         = 540 minutes (8:00 AM to 5:00 PM)
+  Business days in 2023  = 247
+  Daily bike target      = 25 bikes
+  Tasks per bike         = 14
+
+
+================================================================================
+R1: PRODUCTION AND THROUGHPUT REPORTING
+================================================================================
+
+Description:
+  Answer questions about how many bikes are produced and how fast the assembly
+  line runs.
+
+Tables used:
+  TASK_LOG
+
+Metrics:
+  - Daily, weekly, and monthly bike output
+    Calculated as COUNT(DISTINCT bike_unit_id) filtered to task_id = T14
+    (T14 is the final step, Packaging, so a bike reaching T14 counts as done)
+  - Average bike cycle time in minutes
+    Calculated as the difference between MIN(start_time) and MAX(actual_end_time)
+    per bike_unit_id on the same task_date
+  - Total tasks logged in a given period
+    Calculated as COUNT(*) on TASK_LOG with an optional date filter
+
+Example questions the agent should handle:
+  "How many bikes did we complete in March?"
+  "What is our average cycle time per bike?"
+  "Which week had the highest output this year?"
+  "How many bikes were completed yesterday?"
+  "Show me the monthly production trend for 2023"
+
+SQL approach:
+  For daily output: GROUP BY task_date with COUNT(DISTINCT bike_unit_id)
+  filtered to task_id = T14.
+  For cycle time: subquery grouping by bike_unit_id to find MIN start and MAX
+  end, then AVG across all bikes.
+
+Response type: Aggregation, trend analysis
+
+
+================================================================================
+R2: SCHEDULE ADHERENCE ANALYSIS
+================================================================================
+
+Description:
+  Report on whether tasks are finishing on time relative to their scheduled
+  end times.
+
+Tables used:
+  TASK_LOG, TASK
+
+Metrics:
+  - On-time completion rate (overall and per task)
+    A task is on time when actual_end_time is less than or equal to
+    scheduled_end_time. Rate = on-time count divided by total count.
+  - Average delay for late tasks in minutes
+    Average of (actual_end_time minus scheduled_end_time) where
+    actual_end_time is greater than scheduled_end_time.
+  - Maximum overrun per task type
+    MAX of the same schedule variance expression, grouped by task_id.
+  - Schedule variance distribution
+    Distribution of (actual_end_time minus scheduled_end_time) across all rows.
+
+Example questions the agent should handle:
+  "What is our overall on-time rate?"
+  "Which task runs late most often?"
+  "How often does quality check overrun its schedule?"
+  "What is the average delay for late tasks in the Drivetrain department?"
+  "Is our on-time rate improving or getting worse over the year?"
+
+SQL approach:
+  Use CASE WHEN actual_end_time <= scheduled_end_time THEN 1 ELSE 0 END to flag
+  on-time tasks, then SUM divided by COUNT for rate. Join to TASK for
+  descriptions. Join to EMPLOYEE and DEPARTMENT when filtering by department.
+
+Response type: Aggregation, comparison
+
+
+================================================================================
+R3: TASK PERFORMANCE ANALYSIS
+================================================================================
+
+Description:
+  Analyze how long each task type takes, how consistent it is, and how it
+  compares to its defined baseline duration.
+
+Tables used:
+  TASK_LOG, TASK
+
+Task baseline durations (in minutes) for reference:
+  T1  Frame Assembly              35 min
+  T2  Fork Installation           15 min
+  T3  Handlebar and Shifter        20 min
+  T4  Brake Lever Installation     12 min
+  T5  Wheel Assembly              25 min
+  T6  Tire and Tube Installation   10 min
+  T7  Derailleur and Chain         20 min
+  T8  Gear Shifter Adjustment      15 min
+  T9  Brake System Calibration     18 min
+  T10 Handlebar and Grips           8 min
+  T11 Pedals and Crankset          15 min
+  T12 Seat and Seatpost            10 min
+  T13 Quality Check and Adjust     20 min
+  T14 Packaging and Labeling       12 min
+
+Metrics:
+  - Average duration per task type
+    AVG of TIMEDIFF(SECOND, start_time, actual_end_time) divided by 60
+  - Duration standard deviation
+    STDDEV of the same expression -- high values indicate an inconsistent task
+  - Maximum duration per task type
+    MAX of the same expression
+
+Example questions the agent should handle:
+  "What is the average duration for Frame Assembly?"
+  "Which task has the most inconsistent duration?"
+  "Compare the actual duration of T13 vs its 20-minute baseline"
+  "What is the longest a quality check has ever taken?"
+  "Rank all tasks by average duration"
+
+SQL approach:
+  Group by task_id and join to TASK for descriptions. Use TIMEDIFF to compute
+  duration. Compare AVG duration to the baseline constants above to compute
+  percentage of baseline.
+
+Response type: Aggregation, comparison, ranking
+
+
+================================================================================
+R4: EMPLOYEE PERFORMANCE ANALYSIS
+================================================================================
+
+Description:
+  Evaluate individual employee productivity, speed, and schedule adherence.
+
+Tables used:
+  TASK_LOG, EMPLOYEE, DEPARTMENT
+
+Metrics:
+  - Tasks completed per employee per day
+    COUNT(*) grouped by employee_id and task_date
+  - Average task duration per employee in minutes
+    AVG of TIMEDIFF(SECOND, start_time, actual_end_time) divided by 60
+  - Employee on-time rate
+    Same formula as R2 but grouped by employee_id
+  - Employee utilization rate as a percentage
+    SUM of task duration in minutes divided by 540 (shift length), multiplied
+    by 100. Grouped by employee_id and task_date.
+  - Bikes handled per employee
+    COUNT(DISTINCT bike_unit_id) grouped by employee_id
+
+Example questions the agent should handle:
+  "Who are the top 10 fastest employees in the Frame department?"
+  "Which employee completed the most tasks this month?"
+  "What is the utilization rate for employee 528-15826?"
+  "Show me employees with on-time rates below 80 percent"
+  "How does Eyde Bilsford's performance compare to her department average?"
+
+SQL approach:
+  Join TASK_LOG to EMPLOYEE on employee_id, then to DEPARTMENT on department_id.
+  All metrics grouped by employee_id. For department comparison, compute a
+  department-level average as a subquery and join back to each employee's row.
+
+Response type: Ranking, comparison, direct lookup
+
+
+================================================================================
+R5: DEPARTMENT EFFICIENCY ANALYSIS
+================================================================================
+
+Description:
+  Roll up performance metrics to the department level for management reporting.
+
+Tables used:
+  TASK_LOG, EMPLOYEE, DEPARTMENT
+
+Metrics:
+  - Department on-time rate
+    Same formula as R2 but joined through EMPLOYEE to DEPARTMENT and grouped
+    by dept_id
+  - Average task duration by department
+    AVG of task duration in minutes grouped by dept_id
+  - Department daily throughput
+    COUNT(*) grouped by dept_id and task_date
+  - Department average utilization
+    Average of individual employee utilization rates within each department
+
+Example questions the agent should handle:
+  "Which department has the worst on-time rate?"
+  "Compare throughput across all departments"
+  "How efficient is the Wheel Assembly department?"
+  "Rank departments by average utilization"
+  "Which department is the bottleneck?"
+
+SQL approach:
+  Always join TASK_LOG to EMPLOYEE to DEPARTMENT. Group by dept_id and
+  d.description. Order by on_time_pct ascending to surface worst performers
+  first when ranking.
+
+Response type: Comparison, ranking
+
+
+================================================================================
+R6: WORKFORCE PROFILING
+================================================================================
+
+Description:
+  Answer questions about the composition and demographics of the workforce.
+
+Tables used:
+  EMPLOYEE, DEPARTMENT
+
+Metrics:
+  - Headcount by department
+    COUNT(*) grouped by department_id
+  - Gender distribution overall and by department
+    SUM of CASE WHEN gender = 'Male' THEN 1 ELSE 0 END and same for Female,
+    grouped by department_id
+  - Employee age
+    Derived from birthday using DATEDIFF(YEAR, birthday, CURRENT_DATE)
+  - Average age by department
+    AVG of the age expression grouped by department_id
+
+Example questions the agent should handle:
+  "How many employees are in each department?"
+  "What is the gender split in the Drivetrain team?"
+  "What is the average age of our workforce?"
+  "Which department has the oldest workforce on average?"
+  "List all employees in the Packing department"
+
+SQL approach:
+  EMPLOYEE joined to DEPARTMENT. No join to TASK_LOG needed for pure workforce
+  queries. For employee lists, use SELECT with LIMIT 25 by default.
+
+Response type: Direct lookup, aggregation
+
+
+================================================================================
+R7: TIME TREND AND PATTERN ANALYSIS
+================================================================================
+
+Description:
+  Identify temporal patterns and trends in production data over time.
+
+Tables used:
+  TASK_LOG
+
+Metrics:
+  - Weekly output trend
+    COUNT(DISTINCT bike_unit_id) grouped by WEEKOFYEAR(task_date)
+    filtered to task_id = T14
+  - Day-of-week throughput patterns
+    AVG of daily bike count grouped by DAYOFWEEK(task_date)
+  - Monthly on-time rate trend
+    On-time rate grouped by DATE_TRUNC('MONTH', task_date)
+  - Monthly cycle time trend
+    AVG cycle time per bike grouped by month
+
+Example questions the agent should handle:
+  "Show me the weekly production trend"
+  "Are Mondays slower than Fridays?"
+  "Is our on-time rate improving month over month?"
+  "Which month had the best cycle time?"
+  "How did Q3 compare to Q1 in output?"
+
+SQL approach:
+  Use DATE_TRUNC for monthly grouping. Use DAYOFWEEK for day-of-week patterns.
+  For quarterly comparisons use QUARTER(task_date). Subqueries are often needed
+  to first compute daily metrics and then average them at the week or month level.
+
+Response type: Trend analysis, comparison
+
+
+================================================================================
+R8: PROCESS AND PRECEDENCE QUERIES
+================================================================================
+
+Description:
+  Explain the assembly process, task dependencies, and which departments handle
+  which tasks. These are reference lookups -- no aggregation needed.
+
+Tables used:
+  TASK, DEPARTMENT
+
+The task precedence structure (what must be done before what) is stored as text
+in the TASK.precedence column. The agent reads and explains this column in plain
+language rather than computing it programmatically.
+
+Tasks with no predecessors (can start immediately):
+  T1  Frame Assembly
+  T5  Wheel Assembly
+
+Tasks that can run in parallel once their predecessors are done:
+  T2, T3, T7, T11, T12 all depend only on T1 and can run simultaneously
+  T6 depends only on T5
+
+Final sequential tasks:
+  T13 Quality Check requires T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12
+  T14 Packaging requires only T13
+
+Example questions the agent should handle:
+  "What tasks need to be done before Quality Check?"
+  "What does the Drivetrain department do?"
+  "Which task comes after Wheel Assembly?"
+  "How many tasks are in the assembly process?"
+  "Which tasks can run in parallel?"
+
+SQL approach:
+  Simple SELECT on TASK or DEPARTMENT. Join the two tables when the user asks
+  which department performs which task (resolved via the department-task mapping
+  defined in the semantic model).
+
+Response type: Direct lookup, reference
+
+
+================================================================================
+R9: PERFORMANCE STEERING RECOMMENDATIONS
+================================================================================
+
+Description:
+  Monitor key operational metrics against defined thresholds and surface
+  data-backed recommendations when those thresholds are breached. Cortex Analyst
+  runs five threshold SQL queries and returns five result sets. Cortex Complete
+  then reasons over all five results and produces a tiered alert response
+  organised as Critical, Warning, or Healthy.
+
+  Recommendations are always framed as data-backed suggestions, never directives.
+  The agent uses language such as "consider", "may indicate", and "worth
+  reviewing" rather than "you must" or "immediately".
+
+Tables used:
+  TASK_LOG, EMPLOYEE, DEPARTMENT, TASK
+
+The five thresholds that trigger a recommendation:
+
+  Threshold 1 -- On-time rate below 90 percent (task level)
+    Measured over the trailing 7 days.
+    If any task_id has an on-time rate below 90 percent, flag it as a warning
+    or critical depending on severity.
+
+  Threshold 2 -- Average task duration exceeds 120 percent of baseline (task level)
+    Measured over the trailing 7 days.
+    Baseline durations are defined in R3. If AVG actual duration divided by
+    the baseline is greater than 1.20, the task is flagged.
+
+  Threshold 3 -- Employee utilization falls below 60 percent (employee level)
+    Measured for the prior business day.
+    Employees whose total active task time divided by 540 minutes is less than
+    0.60 are flagged. This may indicate understaffing, scheduling gaps, or
+    attendance issues.
+
+  Threshold 4 -- Department weekly throughput drops more than 15 percent
+    week-over-week (department level)
+    Compare total tasks completed this week vs last week per department.
+    A drop greater than 15 percent triggers a warning.
+
+  Threshold 5 -- Daily bike output falls below 25 units (production level)
+    Measured for each day in the trailing 7 days.
+    COUNT(DISTINCT bike_unit_id) where task_id = T14. Any day below 25 is flagged.
+
+Example questions the agent should handle:
+  "Are there any performance issues I should know about?"
+  "Which areas need attention this week?"
+  "Flag anything that is underperforming right now"
+  "Give me a performance health check across all departments"
+  "Which employees should I follow up with based on today's data?"
+
+How the response is structured:
+  Cortex Complete organises results into three tiers and provides a supporting
+  data point and recommendation for each flagged item.
+
+  Example output format (plain text):
+
+    PERFORMANCE ALERT -- [date]
+
+    CRITICAL:
+      T8 (Gear Shifter Adjustment) -- on-time rate 76% [threshold: 90%]
+      Recommendation: Review Drivetrain employees assigned to T8 this week.
+      Consider pairing lower performers with higher-performing peers next shift.
+
+    WARNING:
+      Daily output -- 22 bikes on Tuesday [baseline: 25]
+      Recommendation: Check whether T1 (Frame Assembly) was understaffed.
+      Tuesday had fewer FRM employees active than the weekly average.
+
+    HEALTHY:
+      T1, T2, T3, T4, T5, T6, T7, T9, T10, T11, T12, T13, T14 -- all clear.
+
+Response type: Multi-threshold monitoring, prescriptive reasoning
+
+Guardrails specific to R9:
+  - Always cite the specific metric value and threshold that triggered the alert
+  - Never recommend actions involving personal employee information beyond
+    task performance data
+  - Distinguish clearly between Critical (threshold breached significantly)
+    and Warning (approaching threshold or mild breach)
+  - If all thresholds are healthy, say so clearly rather than inventing concerns
+
+
+================================================================================
+R10: PRODUCTION OUTPUT FORECASTING
+================================================================================
+
+Description:
+  Generate 30-day statistical forecasts for key production metrics using
+  SNOWFLAKE.ML.FORECAST. Cortex Complete narrates the results and contextualises
+  the confidence intervals. All predictions are clearly labelled as estimates,
+  not facts.
+
+Tables used as input (via pre-built Snowflake views):
+  V_DAILY_BIKE_OUTPUT      -- daily completed bike count (from TASK_LOG, T14)
+  V_WEEKLY_ONTIME_RATE     -- weekly on-time rate (from TASK_LOG)
+  V_TASK_DURATION_DAILY    -- daily avg duration per task_id (from TASK_LOG)
+  V_DEPT_DAILY_THROUGHPUT  -- daily task count per dept_id (via EMPLOYEE join)
+
+These four views must be created in Snowflake before R10 can operate. They
+expose the time-series data that ML.FORECAST requires. Each view has two columns:
+ds (date or timestamp) and y (the numeric value being predicted). The
+multi-series views (task duration and department throughput) include a third
+column called series_id so the forecast model produces a separate forecast line
+per task or department.
+
+What is forecasted:
+  1. Daily bike output -- projected total bikes completed per day, next 30 days
+  2. Weekly on-time rate -- projected schedule adherence trend, next 30 days
+  3. Task duration shifts -- projected average duration per task, next 30 days
+  4. Department throughput -- projected daily task volume per department,
+     next 30 days
+
+Forecast horizon: 30 days (fixed)
+
+Forecast output columns returned by ML.FORECAST:
+  TS           -- the forecasted date
+  FORECAST     -- the point estimate (most likely value)
+  LOWER_BOUND  -- lower end of the confidence interval (10th percentile)
+  UPPER_BOUND  -- upper end of the confidence interval (90th percentile)
+
+Example questions the agent should handle:
+  "How many bikes are we likely to produce next month?"
+  "Will our on-time rate improve or decline over the next 30 days?"
+  "Is T13 duration trending up or down?"
+  "Forecast Drivetrain department throughput for the next 4 weeks"
+  "What does production look like through end of next month?"
+
+How the response is structured:
+  Cortex Complete receives the forecast result set and narrates it in plain
+  language, always including the confidence range and the estimate disclaimer.
+
+  Example output format (plain text):
+
+    PRODUCTION FORECAST -- Next 30 days
+    Based on 2023 historical data. These are estimates, not guarantees.
+
+    Daily bike output:
+      Average predicted output: 24.3 bikes per day
+      Expected range: 21 to 27 bikes per day (80% confidence)
+      Trend: Slight downward drift expected in weeks 3 and 4, consistent
+             with the seasonal pattern observed in October and November.
+
+    ESTIMATE ONLY -- Actual output may vary. Forecasts are based on
+    historical patterns from Jan-Dec 2023 only.
+
+Response type: Statistical forecasting, trend narration
+
+Guardrails specific to R10:
+  - Every forecast response must include "ESTIMATE ONLY" or equivalent
+  - Always present confidence intervals alongside the point estimate
+  - Never state a forecasted number as definitive fact
+  - If the user asks for an exact number on a specific future date, reframe:
+    "I can give you a statistical range, not a single exact number"
+  - If the historical series for a given metric has fewer than 30 data points,
+    warn the user that forecast reliability is reduced
+  - Forecasts are derived from 2023 data only -- this limitation must be stated
+
+
+--------------------------------------------------------------------------------
+SECTION 3: TOOL ARCHITECTURE
+--------------------------------------------------------------------------------
+
+The agent uses four tools. Each tool has a distinct role and they work in a
+defined sequence. No tool can be substituted for another.
+
+
+TOOL 1 -- CORTEX ANALYST (text-to-SQL)
+Function: SNOWFLAKE.CORTEX.ANALYST backed by a semantic model YAML file
+Used by: R1 through R9
+
+Cortex Analyst receives the user's natural language question and maps it against
+the semantic model. The semantic model defines all four tables, their columns,
+the joins between them, and the 28 computed metrics. Cortex Analyst uses this
+definition to generate a valid Snowflake SQL SELECT statement, executes it, and
+returns a structured result set of rows and columns.
+
+Cortex Analyst never returns text to the user. Its output is always a structured
+result set that is passed directly to Cortex Complete.
+
+Guardrails:
+  - Generates SELECT statements only (no INSERT, UPDATE, DELETE, DROP, ALTER)
+  - Queries only the 4 authorised tables and their associated views
+  - Applies LIMIT 25 by default on open-ended queries
+  - Does not surface raw SQL to the user unless the user explicitly asks for it
+
+
+TOOL 2 -- CORTEX COMPLETE (natural language generation)
+Function: SNOWFLAKE.CORTEX.COMPLETE
+Used by: R1 through R9 (always follows Cortex Analyst), R10 (narrates forecasts)
+
+Cortex Complete receives the structured result set from Cortex Analyst (or from
+ML.FORECAST for R10) and transforms it into a clear, concise natural language
+response. For R9, it also performs the reasoning step -- reading all five
+threshold query results and deciding what is critical, what is a warning, and
+what is healthy before composing the recommendation.
+
+How Tools 1 and 2 work together for R1 through R8:
+  User question
+    -> Cortex Analyst generates SQL, executes it, returns result set
+    -> Cortex Complete transforms result set into natural language response
+    -> User sees the answer
+
+How they work together for R9:
+  User asks for a health check (or it runs automatically)
+    -> Cortex Analyst runs 5 threshold SQL queries, returns 5 result sets
+    -> Cortex Complete reasons over all 5 results and composes a tiered alert
+    -> User sees Critical / Warning / Healthy breakdown with recommendations
+
+How they work together for R10:
+  User asks a forecast question
+    -> ML.FORECAST runs the model and returns a result set with confidence bounds
+    -> Cortex Complete narrates the forecast in plain language with disclaimer
+    -> User sees the forecast
+
+
+TOOL 3 -- CORTEX SEARCH (entity resolution)
+Function: SNOWFLAKE.CORTEX.SEARCH_SERVICE
+Used by: R3, R4, R6, R8, R9
+
+Cortex Search fires before Cortex Analyst whenever the user refers to an
+employee, task, or department using a partial name, a description, or an
+informal term. It resolves the fuzzy reference to the correct ID so that Cortex
+Analyst can filter correctly.
+
+Examples:
+  "How is Eyde doing?"
+    -> Cortex Search matches "Eyde" to employee_id 619-85250
+    -> Cortex Analyst queries TASK_LOG filtered to that employee_id
+
+  "Show me stats for the handlebar task"
+    -> Cortex Search matches "handlebar task" to task_id T3
+    -> Cortex Analyst queries TASK_LOG filtered to task_id = T3
+
+  "What about the packing team?"
+    -> Cortex Search matches "packing team" to dept_id PACK
+    -> Cortex Analyst queries with EMPLOYEE.department_id = PACK filter
+
+
+TOOL 4 -- ML.FORECAST (statistical forecasting)
+Function: SNOWFLAKE.ML.FORECAST
+Used by: R10 exclusively
+
+ML.FORECAST takes one of the four pre-built input views, runs a time-series
+model, and returns a 30-day forecast with FORECAST, LOWER_BOUND, and
+UPPER_BOUND columns. It does not produce natural language -- that is always
+handled by Cortex Complete in the step that follows.
+
+Forecast models are trained on the full 2023 historical dataset (247 business
+days). Multi-series models (task duration and department throughput) produce one
+forecast line per task_id or dept_id respectively.
+
+
+TOOL USAGE SUMMARY
+
+The following describes which tools each responsibility requires. A dash means
+the tool is not used. "Optional" means the tool fires only when the user's
+question involves a name or description that needs resolving.
+
+  R1  Production reporting:    Cortex Analyst + Cortex Complete
+  R2  Schedule adherence:      Cortex Analyst + Cortex Complete
+  R3  Task performance:        Cortex Analyst + Cortex Complete + Cortex Search (optional)
+  R4  Employee performance:    Cortex Analyst + Cortex Complete + Cortex Search (optional)
+  R5  Department efficiency:   Cortex Analyst + Cortex Complete + Cortex Search (optional)
+  R6  Workforce profiling:     Cortex Analyst + Cortex Complete + Cortex Search (optional)
+  R7  Time trends:             Cortex Analyst + Cortex Complete
+  R8  Process queries:         Cortex Analyst + Cortex Complete + Cortex Search (optional)
+  R9  Performance steering:    Cortex Analyst (x5) + Cortex Complete (reasoning) + Cortex Search (optional)
+  R10 Forecasting:             ML.FORECAST + Cortex Complete (narration)
+
+
+--------------------------------------------------------------------------------
+SECTION 4: CONVERSATION DESIGN
+--------------------------------------------------------------------------------
+
+HANDLING AMBIGUOUS QUESTIONS
+
+When a question is vague or could map to multiple metrics, the agent asks one
+clarifying question before generating SQL. It never asks more than one question
+at a time. If the ambiguity is minor (for example, "last month" when the current
+month is January), the agent states its assumption and proceeds rather than
+asking.
+
+Examples:
+
+  User: "How are we doing?"
+  Agent: "Are you asking about production output, on-time rates, or employee
+  performance? I can also give you a high-level summary across all three."
+
+  User: "Is T13 a problem?"
+  Agent: "I can check T13 (Quality Check) a few ways -- are you asking about
+  its on-time rate, average duration, or how it compares to other tasks?"
+
+  User: "Tell me about the Frame team"
+  Agent: "Would you like headcount and demographics, or their task performance
+  and on-time rate?"
+
+
+HANDLING FOLLOW-UP QUESTIONS
+
+The agent maintains conversational context so follow-up questions work naturally.
+References like "that", "it", "they", and "this department" resolve to the most
+recently discussed entity. If the reference is ambiguous, the agent asks.
+
+Example multi-turn conversation:
+
+  Turn 1 -- User: "Which department has the worst on-time rate?"
+  Agent queries R5, returns result. Example: "Drivetrain at 83.2%."
+
+  Turn 2 -- User: "Break that down by task"
+  Agent re-queries R2 filtered to Drivetrain employees and groups by task_id.
+
+  Turn 3 -- User: "Who is causing the delays?"
+  Agent re-queries R4 for Drivetrain employees, filtered to late tasks,
+  ordered by on-time rate ascending.
+
+  Turn 4 -- User: "How does that compare to last quarter?"
+  Agent re-queries with a date filter comparing Q3 to Q4, same filters applied.
+
+
+HANDLING OUT-OF-SCOPE QUESTIONS
+
+The agent politely declines and redirects to what it can do.
+
+  User: "What is the weather?"
+  Agent: "I am focused on assembly line operations data. I can help with
+  production output, task performance, employee metrics, forecasting, or
+  performance alerts. What would you like to know?"
+
+  User: "Tell me exactly how many bikes we will make on March 5"
+  Agent: "I can give you a statistical range for that date, not a single exact
+  number. Forecasts carry inherent uncertainty -- I will show you the point
+  estimate and confidence interval."
+
+  User: "Update employee 619-85250's department"
+  Agent: "I have read-only access to the data and cannot make changes. I can
+  look up that employee's current department and performance if that helps."
+
+  User: "Why is T13 taking so long?"
+  Agent: "I can show you the data -- T13's average duration, which employees
+  are slowest on it, and whether it is getting worse over time. I cannot
+  explain the root cause from the data alone. Would you like me to pull
+  those stats?"
+
+
+HANDLING MULTI-STEP REASONING
+
+For complex questions that require chaining multiple queries, the agent
+decomposes the question and executes steps sequentially. It shows its reasoning
+so the user can follow the logic.
+
+Example:
+  User: "Which department has the worst on-time rate, and who in that
+  department is causing it?"
+
+  Step 1: The agent runs R5 to find the department with the lowest on-time rate.
+  Step 2: Using that result (for example, Drivetrain), the agent runs R4
+          filtered to that department, ordered by on-time rate ascending.
+  Step 3: Cortex Complete composes a combined response:
+
+    "The Drivetrain department has the lowest on-time rate at 83.2%. Within
+    that team, the employees contributing most to delays are [names and their
+    individual on-time rates]. Their most problematic task is T8 (Gear Shifter
+    Adjustment), which overruns its schedule 22% of the time."
+
+  The agent states each step before executing it so the user understands
+  how the answer was reached.
+
+
+--------------------------------------------------------------------------------
+APPENDIX: TABLE REFERENCE
+--------------------------------------------------------------------------------
+
+DEPARTMENT
+  Rows: 6
+  Primary key: dept_id
+  Columns: dept_id (VARCHAR), description (VARCHAR)
+  Purpose: Lookup table for department codes and full names.
+  Known values: FRM (Frame), DRIV (Drivetrain), WHL (Wheel Assembly),
+                FQC (Final Assembly and Quality Control),
+                PACK (Packing and Shipping), RECV (Receiving)
+
+EMPLOYEE
+  Rows: 980
+  Primary key: employee_id
+  Columns: employee_id (VARCHAR), first_name (VARCHAR), last_name (VARCHAR),
+           email (VARCHAR), gender (VARCHAR), birthday (DATE),
+           department_id (VARCHAR, FK to DEPARTMENT.dept_id)
+  Purpose: Workforce roster with demographics and department assignment.
+  Note: birthday is stored as ISO date (YYYY-MM-DD). Age is derived at
+        query time using DATEDIFF(YEAR, birthday, CURRENT_DATE).
+
+TASK
+  Rows: 14
+  Primary key: task_id
+  Columns: task_id (VARCHAR), description (VARCHAR), precedence (VARCHAR)
+  Purpose: Assembly task definitions and dependency rules.
+  Note: precedence is a free-text field. Empty or null means no prerequisites.
+        The agent interprets this field in natural language (R8) rather than
+        parsing it programmatically.
+
+TASK_LOG
+  Rows: 86,450
+  Primary key: none (composite of task_date + task_id + employee_id + bike_unit_id)
+  Columns: task_date (DATE), start_time (TIME), scheduled_end_time (TIME),
+           actual_end_time (TIME), task_id (VARCHAR, FK to TASK.task_id),
+           employee_id (VARCHAR, FK to EMPLOYEE.employee_id),
+           bike_unit_id (VARCHAR)
+  Purpose: Fact table. One row per task execution per bike per employee.
+           Covers 247 business days in 2023.
+  Note: A completed bike is one that has a TASK_LOG row with task_id = T14.
+        Cycle time is computed from MIN(start_time) on T1 to MAX(actual_end_time)
+        on T14 for the same bike_unit_id on the same task_date.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
