@@ -1,0 +1,371 @@
+name: BIKE_OPERATIONS_VIEW
+tables:
+  - name: DEPARTMENT
+    description: The table contains records of departments, each identified by a unique identifier and an associated description.
+    base_table:
+      database: SNOWFLAKE_OPERATIONS_ANALYST
+      schema: ANALYTICS
+      table: DEPARTMENT
+    dimensions:
+      - name: DEPT_ID
+        description: Abbreviated identifier for a department.
+        expr: DEPT_ID
+        data_type: VARCHAR(10)
+        sample_values:
+          - FRM
+          - WHL
+          - DRIV
+      - name: DESCRIPTION
+        synonyms:
+          - department_details
+          - department_narrative
+          - department_overview
+          - department_profile
+          - department_summary
+          - dept_description
+          - dept_explanation
+          - dept_info
+          - dept_notes
+          - dept_text
+        description: The name or label of a department.
+        expr: DESCRIPTION
+        data_type: VARCHAR(100)
+        sample_values:
+          - Drivetrain
+          - Wheel Assembly
+          - Frame
+    primary_key:
+      columns:
+        - DEPT_ID
+  - name: EMPLOYEE
+    description: The table contains records of employees within the organization. Each record represents an individual employee and includes personal identifying information, contact details, demographic attributes, and departmental affiliation.
+    base_table:
+      database: SNOWFLAKE_OPERATIONS_ANALYST
+      schema: ANALYTICS
+      table: EMPLOYEE
+    dimensions:
+      - name: DEPARTMENT_ID
+        description: Identifier for the department to which an employee belongs.
+        expr: DEPARTMENT_ID
+        data_type: VARCHAR(10)
+        sample_values:
+          - WHL
+          - FRM
+          - FQC
+      - name: EMAIL
+        description: Email addresses of employees.
+        expr: EMAIL
+        data_type: VARCHAR(100)
+        sample_values:
+          - dplait2d@biglobe.ne.jp
+          - twhitty61@china.com.cn
+          - mdubique1@cyberchimps.com
+      - name: EMPLOYEE_ID
+        description: Unique identifier assigned to each employee.
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - 269-09899
+          - 314-41595
+          - 862-84789
+      - name: FIRST_NAME
+        description: The first name of an employee.
+        expr: FIRST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Marieann
+          - Valle
+          - Eyde
+      - name: GENDER
+        description: The gender of the employee.
+        expr: GENDER
+        data_type: VARCHAR(10)
+        sample_values:
+          - Male
+          - Female
+      - name: LAST_NAME
+        description: The last name of the employee.
+        expr: LAST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Dubique
+          - Mahedy
+          - Bilsford
+    time_dimensions:
+      - name: BIRTHDAY
+        description: The birth dates of employees.
+        expr: BIRTHDAY
+        data_type: DATE
+        sample_values:
+          - '1955-12-17'
+          - '1976-03-17'
+          - '1968-09-13'
+    facts:
+      - name: EMPLOYEE_AGE
+        synonyms:
+          - age_of_employee
+          - age_of_staff
+          - associate_age
+          - employee_years
+          - personnel_age
+          - staff_age
+          - staff_member_age
+          - team_member_age
+          - worker_age
+          - worker_years
+        description: current age of an employee
+        expr: DATEDIFF(YEAR, birthday, CURRENT_DATE)
+        data_type: NUMBER(9,0)
+        access_modifier: public_access
+    primary_key:
+      columns:
+        - EMPLOYEE_ID
+    foreign_keys:
+      - fkey_columns:
+          - DEPARTMENT_ID
+        pkey_table:
+          database: SNOWFLAKE_OPERATIONS_ANALYST
+          schema: ANALYTICS
+          table: DEPARTMENT
+        pkey_columns:
+          - DEPT_ID
+    unique_keys:
+      - columns:
+          - EMAIL
+  - name: TASK
+    description: The table contains records of tasks with associated sequencing information. Each record represents a single task and includes details about its description and ordering relative to other tasks.
+    base_table:
+      database: SNOWFLAKE_OPERATIONS_ANALYST
+      schema: ANALYTICS
+      table: TASK
+    dimensions:
+      - name: DESCRIPTION
+        synonyms:
+          - abstract
+          - definition
+          - details
+          - explanation
+          - narrative
+          - notes
+          - overview
+          - remarks
+          - specification
+          - summary
+        description: The name or description of a task involved in a assembly or installation process.
+        expr: DESCRIPTION
+        data_type: VARCHAR(500)
+        sample_values:
+          - Frame Assembly
+          - Fork Installation
+          - Handlebar & Shifter Assembly
+      - name: PRECEDENCE
+        synonyms:
+          - dominance
+          - hierarchy
+          - importance
+          - order
+          - preeminence
+          - preference
+          - primacy
+          - priority
+          - rank
+          - seniority
+          - sequence
+          - standing
+          - superiority
+          - urgency
+          - weight
+        description: The task precedence relationships indicating which tasks must be completed before others can begin.
+        expr: PRECEDENCE
+        data_type: VARCHAR(500)
+        sample_values:
+          - T1 (Frame needs to be assembled before handlebars)
+          - T1 (Must be completed before T2)
+      - name: TASK_ID
+        description: Unique identifier assigned to each task.
+        expr: TASK_ID
+        data_type: VARCHAR(10)
+        sample_values:
+          - T2
+          - T1
+          - T5
+    primary_key:
+      columns:
+        - TASK_ID
+  - name: TASK_LOG
+    description: The table contains records of scheduled and completed tasks, tracking time and assignment details. Each record captures the timing of a task — including scheduled versus actual completion — along with the associated employee and bike unit involved.
+    base_table:
+      database: SNOWFLAKE_OPERATIONS_ANALYST
+      schema: ANALYTICS
+      table: TASK_LOG
+    dimensions:
+      - name: BIKE_UNIT_ID
+        description: Unique identifier assigned to each bike unit.
+        expr: BIKE_UNIT_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - BU-2023-000001
+          - BU-2023-000003
+          - BU-2023-000005
+      - name: EMPLOYEE_ID
+        description: Unique identifier assigned to each employee.
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - 528-15826
+          - 448-54907
+          - 273-98019
+      - name: TASK_ID
+        description: Unique identifier assigned to each task in the log.
+        expr: TASK_ID
+        data_type: VARCHAR(10)
+        sample_values:
+          - T1
+          - T7
+          - T10
+    time_dimensions:
+      - name: ACTUAL_END_TIME
+        description: The time at which a task actually ended.
+        expr: ACTUAL_END_TIME
+        data_type: TIME(9)
+        sample_values:
+          - '08:31:47'
+          - '09:01:48'
+          - '08:54:26'
+      - name: SCHEDULED_END_TIME
+        description: The scheduled end time of the task.
+        expr: SCHEDULED_END_TIME
+        data_type: TIME(9)
+        sample_values:
+          - '08:44:04'
+          - '08:32:08'
+          - '09:35:24'
+      - name: START_TIME
+        description: The time at which a task started.
+        expr: START_TIME
+        data_type: TIME(9)
+        sample_values:
+          - '08:23:03'
+          - '09:41:22'
+          - '08:30:15'
+      - name: TASK_DATE
+        description: The date on which a task was executed or recorded.
+        expr: TASK_DATE
+        data_type: DATE
+        sample_values:
+          - '2023-11-29'
+          - '2023-05-15'
+          - '2023-01-03'
+    facts:
+      - name: SCHEDULE_VARIANCE_MIN
+        synonyms:
+          - planned_vs_actual_minutes
+          - schedule_deviation_minutes
+          - schedule_difference_min
+          - schedule_discrepancy_minutes
+          - schedule_gap_minutes
+          - schedule_offset_min
+          - time_deviation_min
+          - time_variance_min
+          - timing_variance_minutes
+          - variance_from_schedule_min
+        description: Positive = late, negative = early
+        expr: TIMEDIFF(MINUTE, scheduled_end_time, actual_end_time)
+        data_type: NUMBER(9,0)
+        access_modifier: public_access
+      - name: TASK_DURATION
+        synonyms:
+          - activity_duration
+          - duration_of_task
+          - task_elapsed_time
+          - task_length
+          - task_period
+          - task_time
+          - task_timespan
+          - time_spent_on_task
+          - time_to_complete_task
+          - work_duration
+        description: Actual processing time per task execution
+        expr: TIMEDIFF(MINUTE, start_time, actual_end_time)
+        data_type: NUMBER(9,0)
+        access_modifier: public_access
+        default_aggregation: 0
+    metrics:
+      - name: AVG_DELAY_LATE_ONLY
+        description: When tasks are late, how late on average
+        expr: AVG(CASE WHEN actual_end_time > scheduled_end_time THEN schedule_variance_min END)
+        access_modifier: public_access
+      - name: AVG_DURATION_BY_TASK
+        description: Mean duration for each task types
+        expr: AVG(task_duration)
+        access_modifier: public_access
+      - name: BIKE_CYCLE_TIME
+        description: Total wall-clock time from T1 start to T14 end for one bike
+        expr: TIMEDIFF('minute', MIN(start_time), MAX(actual_end_time))
+        access_modifier: public_access
+      - name: DAILY_BIKE_OUTPUT
+        description: Bikes completed (reached T14) per day
+        expr: COUNT(DISTINCT  bike_unit_id)
+        access_modifier: public_access
+      - name: MAX_OVER_RUN_BY_TASK
+        description: Worst-case delay per task type
+        expr: MAX(schedule_variance_min)
+        access_modifier: public_access
+      - name: ON_TIME_RATE
+        description: Percentage of tasks finishing on or before scheduled end
+        expr: SUM(CASE WHEN actual_end_time <= scheduled_end_time THEN 1 END) / COUNT(*)
+        access_modifier: public_access
+      - name: TASK_DURATION_STDEV
+        description: Consistency — high variance = unpredictable task
+        expr: STDDEV(task_duration)
+        access_modifier: public_access
+    primary_key:
+      columns:
+        - BIKE_UNIT_ID
+    foreign_keys:
+      - fkey_columns:
+          - EMPLOYEE_ID
+        pkey_table:
+          database: SNOWFLAKE_OPERATIONS_ANALYST
+          schema: ANALYTICS
+          table: EMPLOYEE
+        pkey_columns:
+          - EMPLOYEE_ID
+      - fkey_columns:
+          - TASK_ID
+        pkey_table:
+          database: SNOWFLAKE_OPERATIONS_ANALYST
+          schema: ANALYTICS
+          table: TASK
+        pkey_columns:
+          - TASK_ID
+relationships:
+  - name: EMPLOYEE_TO_DEPARTMENT
+    left_table: EMPLOYEE
+    right_table: DEPARTMENT
+    relationship_columns:
+      - left_column: DEPARTMENT_ID
+        right_column: DEPT_ID
+    relationship_type: many_to_one
+    join_type: inner
+  - name: TASK_LOG_TO_EMPLOYEE
+    left_table: TASK_LOG
+    right_table: EMPLOYEE
+    relationship_columns:
+      - left_column: EMPLOYEE_ID
+        right_column: EMPLOYEE_ID
+    relationship_type: many_to_one
+    join_type: inner
+  - name: TASK_LOG_TO_TASK
+    left_table: TASK_LOG
+    right_table: TASK
+    relationship_columns:
+      - left_column: TASK_ID
+        right_column: TASK_ID
+    relationship_type: many_to_one
+    join_type: inner
+module_custom_instructions:
+  question_categorization: |-
+    Reject all questions that are not relevant to the data set
+    All answers should be backed by data returned by sql results. if an answer to a question is not available, tell the user you don't have access to requested information.
+  sql_generation: numeric results are rounded to two decimal places
