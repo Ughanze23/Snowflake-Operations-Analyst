@@ -12,6 +12,18 @@ CREATE OR REPLACE SCHEMA ANALYTICS;
 -- Use the schema
 USE SCHEMA ANALYTICS;
 
+-- Create file format for CSV files
+CREATE OR REPLACE FILE FORMAT csv_format
+TYPE = CSV
+FIELD_DELIMITER = ','
+SKIP_HEADER = 1
+NULL_IF = ('NULL', 'null')
+EMPTY_AS_NULL = TRUE;
+
+-- Create internal stage for CSV data loading
+CREATE OR REPLACE STAGE csv_stage
+FILE_FORMAT = csv_format;
+
 -- Create DEPARTMENT table
 CREATE OR REPLACE TABLE DEPARTMENT (
     dept_id VARCHAR(10) PRIMARY KEY,
@@ -49,4 +61,11 @@ CREATE OR REPLACE TABLE TASK_LOG (
     FOREIGN KEY (task_id) REFERENCES TASK(task_id),
     FOREIGN KEY (employee_id) REFERENCES EMPLOYEE(employee_id)
 );
+
+-- To load data: Upload CSV files to the internal stage using SnowSQL or Snowflake UI, then run:
+-- COPY INTO DEPARTMENT FROM @csv_stage/department.csv;
+-- COPY INTO EMPLOYEE FROM @csv_stage/employee.csv;
+-- COPY INTO TASK FROM @csv_stage/task.csv;
+-- COPY INTO TASK_LOG FROM @csv_stage/task_log.csv;
+
 
