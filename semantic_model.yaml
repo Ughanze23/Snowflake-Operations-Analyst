@@ -285,10 +285,9 @@ tables:
           - time_spent_on_task
           - time_to_complete_task
           - work_duration
-        description: Actual processing time per task execution
+        description: Actual processing time per task execution in minutes
         expr: TIMEDIFF(MINUTE, start_time, actual_end_time)
         data_type: NUMBER(9,0)
-        access_modifier: public_access
         default_aggregation: 0
     metrics:
       - name: AVG_DELAY_LATE_ONLY
@@ -296,9 +295,8 @@ tables:
         expr: AVG(CASE WHEN actual_end_time > scheduled_end_time THEN schedule_variance_min END)
         access_modifier: public_access
       - name: AVG_DURATION_BY_TASK
-        description: Mean duration for each task types
+        description: Mean duration for each task types in minutes
         expr: AVG(task_duration)
-        access_modifier: public_access
       - name: BIKE_CYCLE_TIME
         description: Total wall-clock time from T1 start to T14 end for one bike
         expr: TIMEDIFF('minute', MIN(start_time), MAX(actual_end_time))
@@ -308,17 +306,15 @@ tables:
         expr: COUNT(DISTINCT  bike_unit_id)
         access_modifier: public_access
       - name: MAX_OVER_RUN_BY_TASK
-        description: Worst-case delay per task type
+        description: Worst-case delay per task type in minutes
         expr: MAX(schedule_variance_min)
-        access_modifier: public_access
       - name: ON_TIME_RATE
         description: Percentage of tasks finishing on or before scheduled end
         expr: SUM(CASE WHEN actual_end_time <= scheduled_end_time THEN 1 END) / COUNT(*)
         access_modifier: public_access
       - name: TASK_DURATION_STDEV
-        description: Consistency — high variance = unpredictable task
+        description: Consistency — high variance = unpredictable task duration in minutes
         expr: STDDEV(task_duration)
-        access_modifier: public_access
     primary_key:
       columns:
         - BIKE_UNIT_ID
@@ -368,4 +364,7 @@ module_custom_instructions:
   question_categorization: |-
     Reject all questions that are not relevant to the data set
     All answers should be backed by data returned by sql results. if an answer to a question is not available, tell the user you don't have access to requested information.
-  sql_generation: numeric results are rounded to two decimal places
+    based on the metrics defined all time calculation are in minutes
+    when asked about tasks always include the task description/name in the results
+  sql_generation: |
+    numeric results are rounded to two decimal places
