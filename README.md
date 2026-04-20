@@ -1,22 +1,22 @@
 # VeloForge Operations Analyst — Snowflake Intelligence Platform
 
-A two-product analytics platform built on Snowflake that gives VeloForge bicycle assembly managers instant, data-backed answers about their production floor — through a self-service chat app and a Slack-native AI agent.
+A two-product analytics platform built on Snowflake that gives VeloForge bicycle assembly managers instant, data-backed answers about their production floor, through a self-service chat app and a Slack-native AI agent.
 
 ---
 
 ## The Company
 
-**VeloForge** is a bicycle manufacturer that assembles bikes across six specialized departments. Each bike moves through a 14-step sequential assembly line — from frame construction to final packaging — with every task logged in real time. Operations managers need fast visibility into throughput, delays, and workforce performance without writing SQL or switching tools.
+**VeloForge** is a bicycle manufacturer that assembles bikes across six specialized departments. Each bike moves through a 14-step sequential assembly line, from frame construction to final packaging and with every task logged in real time. Operations managers need fast visibility into throughput, delays, and workforce performance without writing SQL or switching tools.
 
 ---
 
 ## The Two Products
 
 ### Product 1 — Streamlit in Snowflake App
-A self-service chat interface deployed inside Snowflake. Managers open it in Snowsight and ask questions about the assembly data in plain English. Cortex Analyst translates the question into SQL, executes it, and Cortex Complete narrates the results as a concise answer.
+A self-service chat interface deployed on Snowflake. Managers open it through the shared URL and ask questions about the assembly data in plain English. Cortex Analyst translates the question into SQL, executes it, and Cortex Complete narrates the results as a concise answer.
 
 ### Product 2 — OpsBike AI Slack Agent
-A conversational operations analyst agent deployed on Slack via Snowflake MCP (Model Context Protocol). Production managers and supervisors ask questions directly in Slack and get data-backed answers without leaving the tools they already use. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steeringa actions and generates 30-day forecasts.
+A conversational operations analyst agent deployed on Slack via Snowflake MCP (Model Context Protocol). Production managers and supervisors ask questions directly in Slack and get data-backed answers without leaving the tools they already use. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steering actions and generates 30-day forecasts.
 
 ---
 
@@ -47,87 +47,6 @@ Connects the OpsBike AI agent to Slack. Users interact with the agent in natural
 ## Entity Relationship Diagram
 
 ![ERD](erd.png)
-
----
-
-## Database Schema
-
-**Database:** `SNOWFLAKE_OPERATIONS_ANALYST` | **Schema:** `ANALYTICS`
-
-### DEPARTMENT
-6 rows — Assembly departments on the production floor.
-
-| Column | Type | Description |
-|---|---|---|
-| dept_id | VARCHAR(10) | Abbreviated department code (`FRM`, `WHL`, `DRIV`, `FQC`, `PACK`, `RECV`) |
-| description | VARCHAR(100) | Full department name (Frame, Wheel Assembly, Drivetrain, Final Assembly & QC, Packing & Shipping, Receiving) |
-
-### EMPLOYEE
-980 rows — Full workforce roster.
-
-| Column | Type | Description |
-|---|---|---|
-| employee_id | VARCHAR(20) | Unique employee identifier |
-| first_name | VARCHAR(50) | First name |
-| last_name | VARCHAR(50) | Last name |
-| email | VARCHAR(100) | Unique work email |
-| gender | VARCHAR(10) | Gender |
-| birthday | DATE | Date of birth (age derived at query time) |
-| department_id | VARCHAR(10) | FK → DEPARTMENT.dept_id |
-
-### TASK
-14 rows — Every step in the bike assembly process.
-
-| Column | Type | Description |
-|---|---|---|
-| task_id | VARCHAR(10) | Task identifier (T1–T14) |
-| description | VARCHAR(500) | Task name (e.g. Frame Assembly, Fork Installation, Quality Check) |
-| precedence | VARCHAR(500) | Which task(s) must be completed before this one |
-
-**Task baseline durations:**
-
-| Task | Description | Baseline |
-|---|---|---|
-| T1 | Frame Assembly | 35 min |
-| T2 | Fork Installation | 15 min |
-| T3 | Handlebar & Shifter Assembly | 20 min |
-| T4 | Brake Lever Installation | 12 min |
-| T5 | Wheel Assembly | 25 min |
-| T6 | Tire & Tube Installation | 10 min |
-| T7 | Derailleur & Chain | 20 min |
-| T8 | Gear Shifter Adjustment | 15 min |
-| T9 | Brake System Calibration | 18 min |
-| T10 | Handlebar Grips | 8 min |
-| T11 | Pedals & Crankset | 15 min |
-| T12 | Seat & Seatpost | 10 min |
-| T13 | Quality Check & Adjustment | 20 min |
-| T14 | Packaging & Labeling | 12 min |
-
-### TASK_LOG
-86,450 rows — The core operational fact table. One row per task execution per bike per employee, covering 247 business days in 2023.
-
-| Column | Type | Description |
-|---|---|---|
-| bike_unit_id | VARCHAR(20) | Unique bike identifier (e.g. `BU-2023-000001`) |
-| task_date | DATE | Date the task was performed |
-| start_time | TIME | When the employee started the task |
-| scheduled_end_time | TIME | When the task was expected to finish |
-| actual_end_time | TIME | When the task actually finished |
-| task_id | VARCHAR(10) | FK → TASK.task_id |
-| employee_id | VARCHAR(20) | FK → EMPLOYEE.employee_id |
-
-**Derived metrics available via the semantic model:**
-
-| Metric | Description |
-|---|---|
-| `TASK_DURATION` | Actual time spent on a task (minutes) |
-| `SCHEDULE_VARIANCE_MIN` | Minutes early (negative) or late (positive) vs schedule |
-| `ON_TIME_RATE` | % of tasks completed on or before scheduled end |
-| `AVG_DELAY_LATE_ONLY` | Average delay for tasks that ran over (minutes) |
-| `BIKE_CYCLE_TIME` | Wall-clock time from T1 start to T14 end for one bike |
-| `DAILY_BIKE_OUTPUT` | Number of bikes completed per day |
-| `MAX_OVER_RUN_BY_TASK` | Worst-case delay per task type |
-| `TASK_DURATION_STDEV` | Standard deviation of task durations (consistency measure) |
 
 ---
 
@@ -170,6 +89,58 @@ The Streamlit in Snowflake app (`bike_operations_analyst_app`) provides a browse
 | Cortex Complete | Generates natural language answers from SQL results | R1–R10 |
 | Cortex Search | Resolves fuzzy names ("the handlebar task", "Eyde") to exact IDs before querying | R3, R4, R6, R8, R9 |
 | ML.FORECAST | Generates 30-day time-series forecasts with confidence intervals | R10 only |
+
+### Agent Responsibilities (R1–R10)
+
+#### R1 — Production & Throughput Reporting
+Answers questions about how many bikes are produced and how fast the line runs. Tracks daily, weekly, and monthly bike output (bikes that reach T14 count as complete), average bike cycle time from T1 start to T14 end, and total tasks logged in any period.
+
+*Example questions: "How many bikes did we complete in March?" / "Which week had the highest output this year?" / "Show me the monthly production trend for 2023"*
+
+#### R2 — Schedule Adherence Analysis
+Reports whether tasks are finishing on time against their scheduled end times. Covers on-time completion rate (overall and per task), average delay when late, maximum overrun per task type, and schedule variance trends over time.
+
+*Example questions: "What's our overall on-time rate?" / "Which task runs late most often?" / "Is our on-time rate improving month over month?"*
+
+#### R3 — Task Performance Analysis
+Analyses how long each of the 14 assembly tasks takes, how consistent they are, and how actual durations compare to defined baselines. Surfaces average duration, standard deviation, and maximum duration per task type.
+
+*Example questions: "What's the average duration for Frame Assembly?" / "Which task has the most inconsistent duration?" / "Rank all tasks by average duration"*
+
+#### R4 — Employee Performance Analysis
+Evaluates individual employee productivity, speed, and schedule adherence. Covers tasks completed per day, average task duration, on-time rate, utilization rate (active minutes vs 540-minute shift), and bikes handled per employee.
+
+*Example questions: "Who are the top 10 fastest employees in the Frame department?" / "Show me employees with on-time rates below 80%" / "What's the utilization rate for employee 528-15826?"*
+
+#### R5 — Department Efficiency Analysis
+Rolls up performance metrics to the department level for management reporting. Covers department on-time rate, average task duration, daily throughput, and utilization — identifying which departments are bottlenecks.
+
+*Example questions: "Which department has the worst on-time rate?" / "Compare throughput across all departments" / "Which department is the bottleneck?"*
+
+#### R6 — Workforce Profiling
+Answers questions about the composition and demographics of the 980-person workforce. Covers headcount by department, gender distribution, employee age (derived from birthday), and average age by department.
+
+*Example questions: "How many employees are in each department?" / "What's the gender split in the Drivetrain team?" / "Which department has the oldest workforce on average?"*
+
+#### R7 — Time Trend & Pattern Analysis
+Identifies temporal patterns in production data. Covers weekly output trends, day-of-week throughput patterns, monthly on-time rate trends, and quarterly comparisons.
+
+*Example questions: "Are Mondays slower than Fridays?" / "How did Q3 compare to Q1 in output?" / "Which month had the best cycle time?"*
+
+#### R8 — Process & Precedence Queries
+Explains the assembly process, task dependencies, and department responsibilities. Reads and interprets the `TASK.precedence` column in plain language rather than parsing it programmatically.
+
+*Example questions: "What tasks need to be done before Quality Check?" / "Which tasks can run in parallel?" / "What does the Drivetrain department do?"*
+
+#### R9 — Performance Steering Recommendations
+Monitors five operational thresholds against live data and surfaces tiered alerts with data-backed recommendations. See the full breakdown below.
+
+#### R10 — Production Output Forecasting
+Generates 30-day statistical forecasts using `SNOWFLAKE.ML.FORECAST` for daily bike output, weekly on-time rate, task duration trends, and department throughput. All forecasts include confidence intervals and are clearly labelled as estimates, not facts.
+
+*Example questions: "How many bikes are we likely to produce next month?" / "Will our on-time rate improve or decline over the next 30 days?" / "Forecast Drivetrain throughput for the next 4 weeks"*
+
+---
 
 ### Performance Steering (R9)
 
