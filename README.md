@@ -1,6 +1,6 @@
 # VeloForge Operations Analyst — Snowflake Intelligence Platform
 
-A two-product analytics platform built on Snowflake that gives VeloForge bicycle assembly managers instant, data-backed answers about their production floor, through a self-service chat app and a Slack-native AI agent.
+A two-product analytics platform built on Snowflake that gives VeloForge bicycle assembly managers instant, data-backed answers about their production floor, through a self-service chat app and a ChatGPT-native AI agent.
 
 ---
 
@@ -15,8 +15,8 @@ A two-product analytics platform built on Snowflake that gives VeloForge bicycle
 ### Product 1 — Streamlit in Snowflake App
 A self-service chat interface deployed on Snowflake. Managers open it through the shared URL and ask questions about the assembly data in plain English. Cortex Analyst translates the question into SQL, executes it, and Cortex Complete narrates the results as a concise answer.
 
-### Product 2 — OpsBike AI Slack Agent
-A conversational operations analyst agent deployed on Slack via Snowflake MCP (Model Context Protocol). Production managers and supervisors ask questions directly in Slack and get data-backed answers without leaving the tools they already use. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steering actions and generates 30-day forecasts.
+### Product 2 — OpsBike AI ChatGPT Agent
+A conversational operations analyst agent exposed via a Snowflake MCP server and integrated as a custom tool in ChatGPT. Production managers and supervisors ask questions directly in ChatGPT and get data-backed answers powered by Snowflake's Cortex services. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steering actions and generates 30-day forecasts.
 
 ---
 
@@ -31,7 +31,8 @@ A conversational operations analyst agent deployed on Slack via Snowflake MCP (M
 | Entity Resolution | Snowflake Cortex Search |
 | Statistical Forecasting | Snowflake ML.FORECAST |
 | Self-Service App | Streamlit in Snowflake (SiS) |
-| Slack Integration | Snowflake MCP (Model Context Protocol) |
+| MCP Server | Snowflake MCP (Model Context Protocol) |
+| Agent Interface | ChatGPT (custom tool via MCP) |
 
 ### Snowflake Cortex Analyst
 Translates natural language questions into SQL using the semantic model as schema context. Understands business terminology like "schedule variance", "on-time rate", and "cycle time" — generating accurate queries without the user needing to know the underlying tables.
@@ -40,7 +41,7 @@ Translates natural language questions into SQL using the semantic model as schem
 `semantic_model.yaml` defines the business meaning of tables, columns, metrics, and relationships. It exposes pre-calculated measures like `ON_TIME_RATE`, `BIKE_CYCLE_TIME`, and `AVG_DELAY_LATE_ONLY` so Cortex Analyst answers operational questions accurately and consistently.
 
 ### Snowflake MCP
-Connects the OpsBike AI agent to Slack. Users interact with the agent in natural language inside Slack channels or DMs. The agent calls Cortex Analyst, Cortex Search, Cortex Complete, and ML.FORECAST as tools depending on the question type.
+A Snowflake MCP (Model Context Protocol) server was created to expose the OpsBike AI agent's capabilities as a set of callable tools. The MCP server is registered in ChatGPT as a custom tool, allowing users to interact with the agent directly inside ChatGPT. When a question is asked, ChatGPT routes it through the MCP server, which calls the appropriate Snowflake Cortex services (Cortex Analyst, Cortex Search, Cortex Complete, or ML.FORECAST) and returns the result.
 
 ---
 
@@ -71,9 +72,9 @@ The Streamlit in Snowflake app (`bike_operations_analyst_app`) provides a browse
 
 ---
 
-## Product 2: OpsBike AI Slack Agent
+## Product 2: OpsBike AI ChatGPT Agent
 
-**OpsBike AI** is a Slack-native operations analyst agent deployed via Snowflake MCP. It covers 10 core responsibilities across three categories:
+**OpsBike AI** is a conversational operations analyst agent accessed via ChatGPT, powered by a Snowflake MCP server. It covers 10 core responsibilities across three categories:
 
 | Category | Responsibilities |
 |---|---|
@@ -191,7 +192,7 @@ HEALTHY:
 ### Forecasting (R10)
 Generates 30-day projections for daily bike output, weekly on-time rate, task duration trends, and department throughput. All forecasts include confidence intervals and are clearly labelled as estimates.
 
-### Sample questions for the Slack agent:
+### Sample questions for the ChatGPT agent:
 - Are there any performance issues I should know about this week?
 - Which department is the bottleneck right now?
 - Who are the slowest employees in the Drivetrain team?
@@ -234,5 +235,5 @@ Deploy `bike_operations_analyst_app` as a Streamlit in Snowflake app:
 ### 4. Forecasting Views (required for R10)
 Create the four ML.FORECAST input views defined in `Agent_instructions/agent_design_document.md` (`V_DAILY_BIKE_OUTPUT`, `V_WEEKLY_ONTIME_RATE`, `V_TASK_DURATION_DAILY`, `V_DEPT_DAILY_THROUGHPUT`).
 
-### 5. Slack Agent
-Configure the OpsBike AI agent in Snowflake Intelligence using the persona and tool definitions in `Agent_instructions/agent_design_document.md`, then connect to Slack via the Snowflake MCP integration.
+### 5. ChatGPT Agent via MCP
+Deploy the Snowflake MCP server using `Agent/mcp_setup.sql`. Register the MCP server as a custom tool in ChatGPT using the configuration defined in `Agent/agent_spec.json`. The agent persona and tool behaviour are defined in `Agent/Orchestration_instructions.txt` and `Agent/Response_instructions.txt`.
