@@ -1,0 +1,92 @@
+-- ============================================================
+-- MCP Server Setup for Bike Ops Agent
+-- ============================================================
+
+USE ROLE ACCOUNTADMIN;
+USE DATABASE SNOWFLAKE_OPERATIONS_ANALYST;
+
+-- ============================================================
+-- 1. Create the MCP Server
+-- ============================================================
+
+CREATE OR REPLACE MCP SERVER SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_MCP_SERVER
+  FROM SPECIFICATION $$
+  tools:
+    - name: "bike-ops-agent"
+      type: "CORTEX_AGENT_RUN"
+      identifier: "SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_AGENT"
+      description: "AI agent for bike assembly operations that monitors thresholds, surfaces alerts, and generates 30-day forecasts"
+      title: "Bike Assembly Operations Agent"
+  $$;
+
+-- ============================================================
+-- 2. Create Role and Grant Permissions
+-- ============================================================
+
+CREATE OR REPLACE ROLE SALES_INTELLIGENCE_ROLE;
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE SALES_INTELLIGENCE_ROLE;
+
+SET my_user = CURRENT_USER();
+GRANT ROLE SALES_INTELLIGENCE_ROLE TO USER IDENTIFIER($my_user);
+
+GRANT USAGE ON DATABASE SNOWFLAKE_OPERATIONS_ANALYST TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT USAGE ON SCHEMA SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE SALES_INTELLIGENCE_ROLE;
+
+GRANT USAGE ON MCP SERVER SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_MCP_SERVER TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT USAGE ON AGENT SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_AGENT TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPERATIONS_VIEW TO ROLE SALES_INTELLIGENCE_ROLE;
+
+GRANT SELECT ON TABLE SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.DEPARTMENT TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT SELECT ON TABLE SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.EMPLOYEE TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT SELECT ON TABLE SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.TASK TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT SELECT ON TABLE SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.TASK_LOG TO ROLE SALES_INTELLIGENCE_ROLE;
+
+GRANT CREATE SNOWFLAKE INTELLIGENCE ON ACCOUNT TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT MODIFY ON SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT TO ROLE SALES_INTELLIGENCE_ROLE;
+GRANT USAGE ON SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT TO ROLE SALES_INTELLIGENCE_ROLE;
+
+GRANT USAGE ON MCP SERVER SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_MCP_SERVER TO ROLE ACCOUNTADMIN;
+
+-- ============================================================
+-- 3. Create OAuth Security Integration (for ChatGPT)
+-- ============================================================
+
+CREATE OR REPLACE SECURITY INTEGRATION bike_ops_mcp_oauth
+  TYPE = OAUTH
+  OAUTH_CLIENT = CUSTOM
+  OAUTH_CLIENT_TYPE = 'CONFIDENTIAL'
+  OAUTH_REDIRECT_URI = 'https://chatgpt.com/connector/oauth/ZxGpJMempYjC'
+  OAUTH_ISSUE_REFRESH_TOKENS = TRUE
+  OAUTH_REFRESH_TOKEN_VALIDITY = 86400
+  BLOCKED_ROLES_LIST = ()
+  ENABLED = TRUE;
+
+ALTER SECURITY INTEGRATION bike_ops_mcp_oauth
+  SET BLOCKED_ROLES_LIST = ();
+
+GRANT USAGE ON INTEGRATION BIKE_OPS_MCP_OAUTH TO ROLE SALES_INTELLIGENCE_ROLE;
+
+-- ============================================================
+-- 4. Retrieve OAuth Credentials
+-- ============================================================
+
+SELECT SYSTEM$SHOW_OAUTH_CLIENT_SECRETS('BIKE_OPS_MCP_OAUTH');
+
+-- ============================================================
+-- 5. Verify Setup
+-- ============================================================
+
+SHOW MCP SERVERS IN SCHEMA SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS;
+DESCRIBE MCP SERVER SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_MCP_SERVER;
+DESC SECURITY INTEGRATION BIKE_OPS_MCP_OAUTH;
+DESCRIBE AGENT SNOWFLAKE_OPERATIONS_ANALYST.ANALYTICS.BIKE_OPS_AGENT;
+
+-- ============================================================
+-- ChatGPT Configuration Reference:
+--   MCP Server URL:    https://qncxhzq-mi37213.snowflakecomputing.com/api/v2/databases/SNOWFLAKE_OPERATIONS_ANALYST/schemas/ANALYTICS/mcp-servers/BIKE_OPS_MCP_SERVER
+--   Authorization URL: https://qncxhzq-mi37213.snowflakecomputing.com/oauth/authorize
+--   Token URL:         https://qncxhzq-mi37213.snowflakecomputing.com/oauth/token-request
+--   Client ID/Secret:  From Step 4 output
+--   Scope:             session:role:SALES_INTELLIGENCE_ROLE
+-- ============================================================
