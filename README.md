@@ -16,7 +16,7 @@ A two-product analytics platform built on Snowflake that gives VeloForge bicycle
 A self-service chat interface deployed on Snowflake. Managers open it through the shared URL and ask questions about the assembly data in plain English. Cortex Analyst translates the question into SQL, executes it, and Cortex Complete narrates the results as a concise answer.
 
 ### Product 2 — OpsBike AI ChatGPT Agent
-A conversational operations analyst agent exposed via a Snowflake MCP server and integrated as a custom tool in ChatGPT. Production managers and supervisors ask questions directly in ChatGPT and get data-backed answers powered by Snowflake's Cortex services. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steering actions and generates 30-day forecasts.
+A conversational operations analyst agent built and configured in the Snowflake UI, exposed via a Snowflake MCP server, and registered as a custom tool in ChatGPT. Production managers and supervisors ask questions directly in ChatGPT and get data-backed answers powered by Snowflake's Cortex services. The agent goes beyond simple Q&A — it monitors thresholds, surfaces performance alerts, provides performance steering actions and generates 30-day forecasts.
 
 ---
 
@@ -236,4 +236,4 @@ Deploy `bike_operations_analyst_app` as a Streamlit in Snowflake app:
 Create the four ML.FORECAST input views defined in `Agent_instructions/agent_design_document.md` (`V_DAILY_BIKE_OUTPUT`, `V_WEEKLY_ONTIME_RATE`, `V_TASK_DURATION_DAILY`, `V_DEPT_DAILY_THROUGHPUT`).
 
 ### 5. ChatGPT Agent via MCP
-Deploy the Snowflake MCP server using `Agent/mcp_setup.sql`. Register the MCP server as a custom tool in ChatGPT using the configuration defined in `Agent/agent_spec.json`. The agent persona and tool behaviour are defined in `Agent/Orchestration_instructions.txt` and `Agent/Response_instructions.txt`.
+The OpsBike AI agent and its Snowflake MCP server are created directly through the Snowflake UI. Once the MCP server is live, it is registered as a custom tool in ChatGPT. The agent persona and tool behaviour are defined in `Agent/Orchestration_instructions.txt` and `Agent/Response_instructions.txt`. `Agent/agent_spec.json` is a reference export of the created agent configuration.
